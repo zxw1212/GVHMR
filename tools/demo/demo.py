@@ -18,6 +18,15 @@ from hmr4d.utils.video_io_utils import (
     get_writer,
     get_video_reader,
 )
+
+
+def get_video_fps(video_path):
+    """Get fps from video file."""
+    import cv2
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    return fps
 from hmr4d.utils.vis.cv2_utils import draw_bbx_xyxy_on_image_batch, draw_coco17_skeleton_batch
 
 from hmr4d.utils.preproc import Tracker, Extractor, VitPoseExtractor, SimpleVO
@@ -85,8 +94,9 @@ def parse_args_to_cfg():
     # Copy raw-input-video to video_path
     Log.info(f"[Copy Video] {video_path} -> {cfg.video_path}")
     if not Path(cfg.video_path).exists() or get_video_lwh(video_path)[0] != get_video_lwh(cfg.video_path)[0]:
+        fps = get_video_fps(video_path)
         reader = get_video_reader(video_path)
-        writer = get_writer(cfg.video_path, fps=30, crf=CRF)
+        writer = get_writer(cfg.video_path, fps=fps, crf=CRF)
         for img in tqdm(reader, total=get_video_lwh(video_path)[0], desc=f"Copy"):
             writer.write_frame(img)
         writer.close()
@@ -218,6 +228,7 @@ def render_incam(cfg):
     # -- rendering code -- #
     video_path = cfg.video_path
     length, width, height = get_video_lwh(video_path)
+    fps = get_video_fps(video_path)
     K = pred["K_fullimg"][0]
 
     # renderer
@@ -227,7 +238,7 @@ def render_incam(cfg):
 
     # -- render mesh -- #
     verts_incam = pred_c_verts
-    writer = get_writer(incam_video_path, fps=30, crf=CRF)
+    writer = get_writer(incam_video_path, fps=fps, crf=CRF)
     for i, img_raw in tqdm(enumerate(reader), total=get_video_lwh(video_path)[0], desc=f"Rendering Incam"):
         img = renderer.render_mesh(verts_incam[i].cuda(), img_raw, [0.8, 0.8, 0.8])
 
@@ -283,6 +294,7 @@ def render_global(cfg):
     # -- rendering code -- #
     video_path = cfg.video_path
     length, width, height = get_video_lwh(video_path)
+    fps = get_video_fps(video_path)
     _, _, K = create_camera_sensor(width, height, 24)  # render as 24mm lens
 
     # renderer
@@ -295,7 +307,7 @@ def render_global(cfg):
     color = torch.ones(3).float().cuda() * 0.8
 
     render_length = length if not debug_cam else 8
-    writer = get_writer(global_video_path, fps=30, crf=CRF)
+    writer = get_writer(global_video_path, fps=fps, crf=CRF)
     for i in tqdm(range(render_length), desc=f"Rendering Global"):
         cameras = renderer.create_camera(global_R[i], global_T[i])
         img = renderer.render_with_ground(verts_glob[[i]], color[None], cameras, global_lights)
@@ -322,8 +334,12 @@ if __name__ == "__main__":
         tic = Log.sync_time()
         pred = model.predict(data, static_cam=cfg.static_cam)
         pred = detach_to_cpu(pred)
-        data_time = data["length"] / 30
+        fps = get_video_fps(cfg.video_path)
+        Log.info(f"[fps] {fps}")
+        data_time = data["length"] / fps
         Log.info(f"[HMR4D] Elapsed: {Log.sync_time() - tic:.2f}s for data-length={data_time:.1f}s")
+        # Save fps information for downstream processing
+        pred["fps"] = fps
         torch.save(pred, paths.hmr4d_results)
 
     # ===== Render ===== #
