@@ -75,6 +75,9 @@ def save_video(images, video_path, fps=30, crf=17):
     elif isinstance(images, list):
         images = np.array(images).astype(np.uint8)
 
+    # Round fps to avoid overflow in pyav's to_avrational conversion
+    fps = round(fps) if abs(fps - round(fps)) < 0.01 else fps
+
     with iio.imopen(video_path, "w", plugin="pyav") as writer:
         writer.init_video_stream("libx264", fps=fps)
         writer._video_stream.options = {"crf": str(crf)}
@@ -84,6 +87,8 @@ def save_video(images, video_path, fps=30, crf=17):
 def get_writer(video_path, fps=30, crf=17):
     """remember to .close()"""
     writer = iio.imopen(video_path, "w", plugin="pyav")
+    # Round fps to avoid overflow in pyav's to_avrational conversion
+    fps = round(fps) if abs(fps - round(fps)) < 0.01 else fps
     writer.init_video_stream("libx264", fps=fps)
     writer._video_stream.options = {"crf": str(crf)}
     return writer
